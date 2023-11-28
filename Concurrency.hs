@@ -603,7 +603,13 @@ instance MsgMonad Mailbox IO where
   sendMsg :: Mailbox -> Msg -> IO ()
   sendMsg v a = IO.writeIORef v (Just a)
   checkMsg :: Mailbox -> IO (Maybe Msg)
-  checkMsg = undefined
+  checkMsg v = do
+    x <- IO.readIORef v
+    case x of
+      Nothing -> return Nothing
+      Just a -> do 
+        IO.writeIORef v Nothing -- clear the mailbox
+        return (Just a)
 
 {-
 With this instance making the operations available in the `IO` monad, we can also lift them into the concurrency monad, using the following instance.
