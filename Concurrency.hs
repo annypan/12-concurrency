@@ -18,9 +18,9 @@ To use this module, you will also need the the [Client](Client.html) module.
 module Concurrency where
 
 import Control.Monad (ap, liftM)
-import qualified Data.IORef as IO
-import qualified Network.Socket as Socket -- from the `network` library
-import qualified System.IO as IO
+import Data.IORef qualified as IO
+import Network.Socket qualified as Socket -- from the `network` library
+import System.IO qualified as IO
 
 {-
 In this lecture, we'll combine a number of ideas from recent lectures (monads
@@ -107,7 +107,8 @@ single string letter by letter.
 -}
 
 writeAction :: String -> Action
-writeAction = undefined
+writeAction "" = Stop
+writeAction (c : cs) = Atomic (putChar c >> return (writeAction cs))
 
 {-
 And this one writes two strings concurrently.
@@ -145,7 +146,10 @@ The job of the thread scheduler is to run the threads in the queue.
 -}
 
 sched :: [Action] -> IO ()
-sched = undefined
+sched [] = return ()
+sched (Atomic m : as) = m >>= \a -> sched (as ++ [a])
+sched (Fork a1 a2 : as) = sched (as ++ [a1, a2])
+sched (Stop : as) = sched as
 
 {-
 To make sure that we get the full effect of concurrency, we'll
@@ -198,7 +202,7 @@ passing the "last action" along.
 
 writeComputation :: String -> Action -> Action
 writeComputation "" k = k
-writeComputation (c : cs) k = undefined
+writeComputation (c : cs) k = Atomic (putChar c >> return (writeComputation cs k))
 
 {-
 For example, we can put actions together by successively passing them in
@@ -222,7 +226,7 @@ sequenceComputation ::
   (Action -> Action) ->
   (Action -> Action) ->
   (Action -> Action)
-sequenceComputation = undefined
+sequenceComputation = (.)
 
 {-
 For example, here is the `hello5520` sequence above:
@@ -254,7 +258,8 @@ that character to the next action.
 -}
 
 readComputation :: (Char -> Action) -> Action
-readComputation = undefined
+readComputation k = Atomic $ do
+  k <$> getChar
 
 {-
 So, to be polymorphic over the result type of the action, we would like our
@@ -272,7 +277,7 @@ sequenceComp ::
   (a -> (b -> Action) -> Action) -> -- pass to another
   (b -> Action) ->
   Action
-sequenceComp m f = undefined
+sequenceComp m f = \k -> m (`f` k)
 
 {-
 To sequence computations, we first abstract the current continuation
@@ -326,7 +331,7 @@ result to the next one in line.
 -}
 
 returnCompM :: a -> ((a -> Action) -> Action)
-returnCompM x = undefined
+returnCompM x = \k -> k x
 
 {-
 Putting this all together, we can define a monadic type using a newtype:
@@ -371,7 +376,7 @@ interrupted; that is why this is called "atomic".)
 -}
 
 atomic :: IO a -> C a
-atomic = undefined
+atomic m = MkC $ \k -> Atomic (m >>= \v -> return (k v))
 
 {-
 For thread spawning, there are multiple possible primitives -- we'll present
@@ -410,7 +415,7 @@ For example, consider a class of monads that support text
 output. These are the ones that have a `write` operation.
 -}
 
-class Monad m => OutputMonad m where
+class (Monad m) => OutputMonad m where
   write :: String -> m ()
 
 {-
@@ -437,8 +442,8 @@ Here is an infinite loop that just prints its argument over and
 over.
 -}
 
-infloop :: OutputMonad m => String -> m ()
-infloop = undefined
+infloop :: (OutputMonad m) => String -> m ()
+infloop str = write str >> infloop str
 
 {-
 If we run this loop from the ghci toplevel (in the IO monad) we don't get
@@ -489,7 +494,7 @@ one ready.  If there is no input available, it immediately returns
 `Nothing`.
 -}
 
-class Monad m => InputMonad m where
+class (Monad m) => InputMonad m where
   input :: m (Maybe String)
 
 {-
@@ -571,7 +576,7 @@ Then, a class of monads that can create mailboxes for these messages
 and send and receive messages through these mailboxes.
 -}
 
-class Monad m => MsgMonad b m | m -> b where
+class (Monad m) => MsgMonad b m | m -> b where
   newMailbox :: m b
   sendMsg :: b -> Msg -> m ()
   checkMsg :: b -> m (Maybe Msg)
